@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import app from './app.js';
-import { initializeDatabase } from './config/database.js';
+import initializeDatabase from './config/database.js';
 
 dotenv.config();
 
@@ -19,7 +19,10 @@ const startServer = async () => {
       );
     });
   } catch (error) {
-    console.error('❌ Failed to start server:', error.message);
+    console.error(
+      '❌ Failed to start server:',
+      error.message
+    );
     process.exit(1);
   }
 };

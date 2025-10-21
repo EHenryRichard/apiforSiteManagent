@@ -1,32 +1,71 @@
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 import DatabaseChecker from '../models/DatabaseChecker.js';
+import { Sequelize } from 'sequelize';
 import { dbConfig } from './dbConfigs.js';
 
 dotenv.config();
 
 let pool = null;
+let sequelize = null;
 
-// Initialize database with validation
+// initialize both mysql2 and sequelize
 const initializeDatabase = async () => {
   try {
-    // Step 1: Use class to check before pool creation
+    //use class to check if  database exists if it does not it creates it before pool creation (connecting to the database)
+
     const checker = new DatabaseChecker();
     await checker.validateBeforePool(process.env.DBNAME);
 
-    // Step 2: Only create pool after validation passes
+    // create mysql2 pool (for raw databse queries)
     pool = mysql.createPool(dbConfig);
 
-    // Step 3: Test the pool
+    //create sequelize instance (for ORM and table creation)
+    sequelize = new Sequelize(
+      process.env.DBNAME,
+      process.env.USER,
+      process.env.PASSWORD,
+      {
+        host: process.env.HOST,
+        port: process.env.DBPORT,
+        dialect: 'mysql',
+        logging: false,
+        pool: {
+          max: dbConfig.connectionLimit || 10,
+          min: 0,
+          acquire: 30000,
+          idle: 10000,
+        },
+      }
+    );
+
+    // INITIAIZE CONNECTIONS
+
+    //To start the mysql  connection. (raw connections)
     const connection = await pool.getConnection();
     connection.release();
-    return pool;
+
+    // To initialize the sequencie connection (ORM)
+    await sequelize.authenticate();
+    console.log(
+      'Both database connections has been established successfully'
+    );
+
+    // Import and sync all models
+    const getUserModel = (await import('../models/user.js')).default;
+    getUserModel(); // Initialize the User model
+
+    // Sync all models with database (creates tables if they don't exist)
+    await sequelize.sync({ alter: false });
+    console.log('Database tables synchronized successfully');
+
+    return { pool, sequelize };
   } catch (error) {
+    console.error('database initialization failed', error);
     process.exit(1);
   }
 };
 
-// Export the pool getter function
 export const getPool = async () => {
   if (!pool) {
     await initializeDatabase();
@@ -34,15 +73,28 @@ export const getPool = async () => {
   return pool;
 };
 
-// Direct access to pool (must be initialized first)
+export const getSequelize = async () => {
+  if (!sequelize) {
+    await initializeDatabase();
+  }
+  return sequelize;
+};
+
 export const getPoolSync = () => {
   if (!pool) {
     throw new Error(
-      'Database pool not initialized. Call initializeDatabase() first.'
+      'Database pool not initialized call initializeDatabase() first. '
     );
   }
   return pool;
 };
+export const getSequelizeSync = () => {
+  if (!sequelize) {
+    throw new Error(
+      'Sequelize not initialized.  call initializeDatabase() first. '
+    );
+  }
+  return sequelize;
+};
 
-// Export initialization function
-export { initializeDatabase };
+export default initializeDatabase;

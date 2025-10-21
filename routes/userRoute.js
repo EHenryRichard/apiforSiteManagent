@@ -2,7 +2,7 @@ import express from 'express';
 import * as userController from '../controllers/userController.js';
 const router = express.Router();
 
-router.get('/getUser', userController.getAllUser);
+router.post('/saveUser', userController.saveUser);
 // router.get('/:id');
 // router.post('/');
 // router.put('/');
