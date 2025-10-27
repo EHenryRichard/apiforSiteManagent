@@ -51,7 +51,8 @@ const getValidationModel = () => {
             'email_change',
             'phone_verification',
             'two_factor',
-            'account_recovery'
+            'account_recovery',
+            'login_verification'
           ),
           allowNull: false,
         },
@@ -141,6 +142,7 @@ const getValidationModel = () => {
     validation.prototype.generateToken = function () {
       switch (this.type) {
         case 'email_verification':
+        case 'login_verification':
           return Math.floor(
             100000 + Math.random() * 900000
           ).toString();
@@ -170,6 +172,9 @@ const getValidationModel = () => {
           return new Date(
             now.getTime() + 24 * 60 * 60 * 1000
           ); // 24 hours
+
+        case 'login_verification':
+          return new Date(now.getTime() + 15 * 60 * 1000); // 15 minutes
 
         case 'password_reset':
           return new Date(
@@ -203,6 +208,7 @@ const getValidationModel = () => {
       switch (this.type) {
         case 'phone_verification':
         case 'two_factor':
+        case 'login_verification':
           return 5;
         case 'password_reset':
           return 3;
