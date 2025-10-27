@@ -30,6 +30,10 @@ const initializeDatabase = async () => {
         port: process.env.DBPORT,
         dialect: 'mysql',
         logging: false,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, // Auto-detect system timezone
+        dialectOptions: {
+          timezone: 'local', // Use local timezone for MySQL connection
+        },
         pool: {
           max: dbConfig.connectionLimit || 10,
           min: 0,
@@ -52,12 +56,24 @@ const initializeDatabase = async () => {
     );
 
     // Import and sync all models
-    const getUserModel = (await import('../models/user.js')).default;
+    const getUserModel = (await import('../models/user.js'))
+      .default;
     getUserModel(); // Initialize the User model
 
+    const getValidationModel = (
+      await import('../models/validation.js')
+    ).default;
+
+    //initialize the validationModel
+    getValidationModel();
+
     // Sync all models with database (creates tables if they don't exist)
-    await sequelize.sync({ alter: false });
-    console.log('Database tables synchronized successfully');
+    // Using force: false to only create tables if they don't exist
+    // This prevents duplicate indexes from being created
+    await sequelize.sync({ force: false });
+    console.log(
+      'Database tables synchronized successfully'
+    );
 
     return { pool, sequelize };
   } catch (error) {

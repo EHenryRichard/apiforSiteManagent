@@ -3,6 +3,7 @@ import * as userController from '../controllers/userController.js';
 const router = express.Router();
 
 router.post('/saveUser', userController.saveUser);
+router.post('/magic_link/:id', userController.saveUser);
 // router.get('/:id');
 // router.post('/');
 // router.put('/');

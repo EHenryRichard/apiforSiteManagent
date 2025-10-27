@@ -24,6 +24,7 @@
         "express": "^5.1.0",
         "mysql2": "^3.15.2",
         "nodemon": "^3.1.10",
-        "sequelize": "^6.37.7"
+        "sequelize": "^6.37.7",
+        "sequelize-bcrypt": "^1.2.0"
     }
 }

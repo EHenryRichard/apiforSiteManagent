@@ -1,11 +1,20 @@
 import { DataTypes } from 'sequelize';
 import { getSequelizeSync } from '../config/database.js';
-import bcrypt from 'bcrypt';
+import useBcrypt from 'sequelize-bcrypt';
+import crypto from 'crypto';
+
 let User = null;
 
 const getUserModel = () => {
   if (!User) {
     const sequelize = getSequelizeSync();
+
+    // Check if model is already defined in sequelize
+    if (sequelize.models.user) {
+      User = sequelize.models.user;
+      return User;
+    }
+
     User = sequelize.define(
       'user',
       {
@@ -35,39 +44,66 @@ const getUserModel = () => {
             notEmpty: true,
           },
         },
+        ipAddress: {
+          type: DataTypes.STRING(55),
+          allowNull: false,
+          field: 'ip_address',
+        },
+        userAgent: {
+          type: DataTypes.STRING(100),
+          allowNull: false,
+          field: 'user_agent',
+        },
+        userBrowser: {
+          type: DataTypes.STRING(100),
+          allowNull: false,
+          field: 'user_browser',
+        },
+        userOs: {
+          type: DataTypes.STRING(100),
+          allowNull: false,
+          field: 'user_os',
+        },
+        userDevice: {
+          type: DataTypes.STRING(100),
+          allowNull: false,
+          field: 'user_device',
+        },
+        userCountry: {
+          type: DataTypes.STRING(100),
+          allowNull: false,
+          field: 'user_country',
+        },
+        userId: {
+          type: DataTypes.STRING(100),
+          allowNull: false,
+          field: 'user_id',
+          unique: true,
+        },
       },
       {
         timestamps: true, // Enable timestamps
         createdAt: true, // Keep createdAt
         updatedAt: false, // Disable updatedAt
-      },
-      {
         hooks: {
-          beforeCreate: async (user) => {
-            if (user.password) {
-              user.password = await bcrypt.hash(
-                user.password,
-                12
-              );
-            }
-          },
-          beforeUpdate: async (user) => {
-            if (user.changed('password')) {
-              user.password = await bcrypt.hash(
-                user.password,
-                12
-              );
+          beforeValidate: (instance) => {
+            if (!instance.userId) {
+              instance.userId = crypto
+                .randomBytes(8)
+                .toString('hex');
             }
           },
         },
       }
     );
-    User.prototype.verifyPassword = async function (
-      password
-    ) {
-      return bcrypt.compare(password, this.password);
-    };
+    useBcrypt(User, {
+      field: 'password',
+      rounds: 12,
+      compare: 'authenticate',
+    });
   }
+  User.prototype.generateToken = () =>
+    crypto.randomBytes(8).toString('hex');
   return User;
 };
 

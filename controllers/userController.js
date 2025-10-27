@@ -1,8 +1,17 @@
 import * as userService from '../services/userService.js';
+import getClientInfo from '../utils/deviceInfo.js';
 
 export const saveUser = async (req, res) => {
   try {
     const data = req.body;
+    const clientInfo = await getClientInfo(req);
+    data.ipAddress = clientInfo.ipAddress;
+    data.userAgent = clientInfo.userAgent;
+    data.userBrowser = clientInfo.browser;
+    data.userOs = clientInfo.os;
+    data.userDevice = clientInfo.device;
+    data.userCountry = clientInfo.country;
+
     const savedUser = await userService.createUser(data);
 
     res.status(201).json({
