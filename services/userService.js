@@ -5,6 +5,7 @@ import {
   sendPasswordResetEmail,
 } from './emailService.js';
 import { generateTokenPair } from '../utils/jwtUtils.js';
+import * as notificationService from './notificationService.js';
 
 export const createUser = async (userData) => {
   try {
@@ -35,6 +36,16 @@ export const createUser = async (userData) => {
       if (!emailResult.success) {
         console.error('Failed to send verification email:', emailResult.error);
       }
+
+      // Log account creation
+      await notificationService.logAccountCreation(newUser.userId, {
+        ipAddress: userData.ipAddress,
+        userAgent: userData.userAgent,
+        device: userData.userDevice,
+        browser: userData.userBrowser,
+        os: userData.userOs,
+        country: userData.userCountry,
+      });
 
       // Return only safe, non-sensitive user data
       return {
@@ -78,6 +89,33 @@ export const getValidationData = async (id) => {
   }
 };
 
+// Mark user's email as verified
+export const markEmailAsVerified = async (userId) => {
+  try {
+    const User = getUserModel();
+    const user = await User.findOne({ where: { userId: userId } });
+
+    if (!user) {
+      return {
+        success: false,
+        reason: 'User not found',
+      };
+    }
+
+    // Update isEmailVerified to true
+    await user.update({ isEmailVerified: true });
+
+    // Log email verification
+    await notificationService.logEmailVerification(userId);
+
+    return {
+      success: true,
+    };
+  } catch (error) {
+    throw new Error(`Failed to mark email as verified: ${error.message}`);
+  }
+};
+
 // Verify validation token and count attempts
 export const verifyValidationToken = async (validationId, providedToken) => {
   try {
@@ -98,7 +136,7 @@ export const verifyValidationToken = async (validationId, providedToken) => {
     if (validationData.isExpired()) {
       return {
         success: false,
-        reason: 'Token has expired',
+        reason: 'Token has expired request for another',
         code: 'EXPIRED',
         expiredAt: validationData.expiresAt,
       };
@@ -191,7 +229,25 @@ export const regenerateExpiredToken = async (validationId) => {
       };
     }
 
+    // Get user details for email
+    const User = getUserModel();
+    const user = await User.findOne({ where: { userId: existingToken.userId } });
+    // console.log('Looking for userId:', existingToken.userId);
+    // console.log('Found user:', user ? user.email : 'NOT FOUND');
+
+    if (!user) {
+      return {
+        success: false,
+        reason: 'User not found',
+        code: 'USER_NOT_FOUND',
+      };
+    }
+
+    // Delete the old expired token before creating a new one
+    await existingToken.destroy();
+
     // Create a new validation token with the same details
+    // Use minimal metadata to avoid "packet bigger than max_allowed_packet" error
     const newToken = await Validation.create({
       userId: existingToken.userId,
       email: existingToken.email,
@@ -201,15 +257,42 @@ export const regenerateExpiredToken = async (validationId) => {
       ipAddress: existingToken.ipAddress,
       userAgent: existingToken.userAgent,
       metadata: {
-        ...existingToken.metadata,
         regeneratedFrom: existingToken.validationId,
-        regeneratedAt: new Date(),
+        regeneratedAt: new Date().toISOString(),
       },
     });
 
+    // Send appropriate email based on token type (same format as registration)
+    if (existingToken.type === 'email_verification') {
+      await sendVerificationEmail({
+        email: newToken.email,
+        token: newToken.token,
+        recipientName: user.fullname,
+        expiresIn: '24 hours',
+        verificationLink: `${process.env.LINK}magic-link/${newToken.validationId}`,
+      });
+    } else if (existingToken.type === 'login_verification') {
+      await sendLoginVerificationEmail({
+        email: newToken.email,
+        token: newToken.token,
+        recipientName: user.fullname,
+        expiresIn: '15 minutes',
+        validationId: newToken.validationId,
+        deviceInfo: existingToken.metadata,
+      });
+    } else if (existingToken.type === 'password_reset') {
+      await sendPasswordResetEmail({
+        email: newToken.email,
+        token: newToken.token,
+        recipientName: user.fullname,
+        expiresIn: '1 hour',
+        validationId: newToken.validationId,
+      });
+    }
+
     return {
       success: true,
-      message: 'New validation token generated',
+      message: 'Verification email has been resent successfully',
       data: {
         validationId: newToken.validationId,
         token: newToken.token,
@@ -221,6 +304,81 @@ export const regenerateExpiredToken = async (validationId) => {
     throw new Error(`Failed to regenerate token: ${error.message}`);
   }
 };
+
+// Resend verification email by email address only (no token ID required)
+export const resendVerificationByEmail = async (email) => {
+  try {
+    const User = getUserModel();
+    const Validation = getValidationModel();
+
+    // Find user by email
+    const user = await User.findOne({ where: { email: email } });
+
+    if (!user) {
+      return {
+        success: false,
+        reason: 'No account found with this email address',
+        code: 'USER_NOT_FOUND',
+      };
+    }
+
+    // Find the most recent email_verification token for this user
+    const existingToken = await Validation.findOne({
+      where: {
+        email: email,
+        type: 'email_verification',
+      },
+      order: [['createdAt', 'DESC']],
+    });
+
+    // If there's an existing token that's not expired and not used, return error
+    if (existingToken && !existingToken.isExpired() && !existingToken.isUsed()) {
+      return {
+        success: false,
+        reason:
+          'A verification email was already sent. Please check your inbox or wait for it to expire.',
+        code: 'TOKEN_STILL_VALID',
+        expiresAt: existingToken.expiresAt,
+      };
+    }
+
+    // Delete old tokens for this user and type
+    await Validation.destroy({
+      where: {
+        email: email,
+        type: 'email_verification',
+      },
+    });
+
+    // Create a new validation token
+    const newToken = await Validation.create({
+      userId: user.userId,
+      email: user.email,
+      type: 'email_verification',
+    });
+
+    // Send verification email
+    await sendVerificationEmail({
+      email: newToken.email,
+      token: newToken.token,
+      recipientName: user.fullname,
+      expiresIn: '24 hours',
+      verificationLink: `${process.env.LINK}magic-link/${newToken.validationId}`,
+    });
+
+    return {
+      success: true,
+      message: 'Verification email has been sent successfully',
+      data: {
+        validationId: newToken.validationId,
+        expiresAt: newToken.expiresAt,
+      },
+    };
+  } catch (error) {
+    throw new Error(`Failed to resend verification: ${error.message}`);
+  }
+};
+
 // Login user with email and password - creates/reuses validation token and sends email
 export const loginUser = async (email, password, clientInfo = {}) => {
   try {
@@ -244,6 +402,9 @@ export const loginUser = async (email, password, clientInfo = {}) => {
     const isPasswordValid = await user.authenticate(password);
 
     if (!isPasswordValid) {
+      // Log failed login attempt
+      await notificationService.logLogin(user.userId, false, clientInfo, 'Invalid password');
+
       return {
         success: false,
         reason: 'Invalid email or password',
@@ -251,63 +412,36 @@ export const loginUser = async (email, password, clientInfo = {}) => {
       };
     }
 
-    // Check for existing login_verification token
-    const existingToken = await Validation.findOne({
+    // Delete ALL existing login_verification tokens for this user
+    // This ensures only the latest login attempt is valid
+    await Validation.destroy({
       where: {
         userId: user.userId,
         type: 'login_verification',
-        usedAt: null, // Not used
       },
-      order: [['createdAt', 'DESC']], // Get most recent
     });
 
-    let validationToken;
-
-    // If token exists and not expired, reuse it
-    if (existingToken && !existingToken.isExpired()) {
-      validationToken = existingToken;
-    }
-    // If token exists but expired, regenerate
-    else if (existingToken && existingToken.isExpired()) {
-      // Create new token
-      validationToken = await Validation.create({
-        userId: user.userId,
-        email: user.email,
-        type: 'login_verification',
-        ipAddress: clientInfo.ipAddress,
-        userAgent: clientInfo.userAgent,
-        metadata: {
-          regeneratedFrom: existingToken.validationId,
-          browser: clientInfo.browser,
-          os: clientInfo.os,
-          device: clientInfo.device,
-          country: clientInfo.country,
-        },
-      });
-    }
-    // No existing token, create new one
-    else {
-      validationToken = await Validation.create({
-        userId: user.userId,
-        email: user.email,
-        type: 'login_verification',
-        ipAddress: clientInfo.ipAddress,
-        userAgent: clientInfo.userAgent,
-        metadata: {
-          browser: clientInfo.browser,
-          os: clientInfo.os,
-          device: clientInfo.device,
-          country: clientInfo.country,
-        },
-      });
-    }
+    // Create new login verification token
+    const validationToken = await Validation.create({
+      userId: user.userId,
+      email: user.email,
+      type: 'login_verification',
+      ipAddress: clientInfo.ipAddress,
+      userAgent: clientInfo.userAgent,
+      metadata: {
+        browser: clientInfo.browser,
+        os: clientInfo.os,
+        device: clientInfo.device,
+        country: clientInfo.country,
+      },
+    });
 
     // Send login verification email (DO NOT include token, IP, device, or location - security risk!)
     const emailResult = await sendLoginVerificationEmail({
       email: user.email,
       recipientName: user.fullname,
       expiresIn: '15 minutes',
-      verificationLink: `${process.env.LINK}login-verify/${validationToken.validationId}`,
+      verificationLink: `${process.env.LINK}magic-login/${validationToken.validationId}`,
     });
 
     // Log email status
@@ -394,9 +528,21 @@ export const verifyLoginLink = async (validationId) => {
     // Mark validation link as used
     await validationData.markAsUsed();
 
+    // Log successful login
+    await notificationService.logLogin(user.userId, true, {
+      ipAddress: validationData.ipAddress,
+      userAgent: validationData.userAgent,
+      device: validationData.metadata?.device,
+      browser: validationData.metadata?.browser,
+      os: validationData.metadata?.os,
+      country: validationData.metadata?.country,
+    });
+
     // Generate JWT token pair
     const tokens = generateTokenPair({
       userId: user.userId,
+      email: user.email,
+      fullname: user.fullname,
     });
 
     return {
@@ -405,9 +551,12 @@ export const verifyLoginLink = async (validationId) => {
       data: {
         user: {
           userId: user.userId,
+          email: user.email,
+          fullname: user.fullname,
           createdAt: user.createdAt,
         },
-        ...tokens,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
       },
     };
   } catch (error) {
@@ -455,7 +604,7 @@ export const forgotPassword = async (email) => {
     // Don't reveal if email exists (security best practice)
     if (!user) {
       return {
-        success: true,
+        success: false,
         message: 'If an account with that email exists, a password reset link has been sent',
       };
     }
@@ -571,53 +720,13 @@ export const verifyPasswordResetLink = async (validationId) => {
 };
 
 // Reset password with new password
-export const resetPassword = async (validationId, newPassword) => {
+export const resetPassword = async (Id, newPassword) => {
   try {
     const User = getUserModel();
-    const Validation = getValidationModel();
-
-    const validationData = await Validation.findOne({
-      where: { validationId: validationId },
-    });
-
-    if (!validationData) {
-      return {
-        success: false,
-        reason: 'Reset link not found',
-        code: 'NOT_FOUND',
-      };
-    }
-
-    // Check if it's a password_reset type
-    if (validationData.type !== 'password_reset') {
-      return {
-        success: false,
-        reason: 'Invalid reset link type',
-        code: 'INVALID_TYPE',
-      };
-    }
-
-    // Check if expired
-    if (validationData.isExpired()) {
-      return {
-        success: false,
-        reason: 'Reset link has expired',
-        code: 'EXPIRED',
-      };
-    }
-
-    // Check if already used
-    if (validationData.isUsed()) {
-      return {
-        success: false,
-        reason: 'Reset link has already been used',
-        code: 'ALREADY_USED',
-      };
-    }
 
     // Get user
     const user = await User.findOne({
-      where: { userId: validationData.userId },
+      where: { userId: Id },
     });
 
     if (!user) {
@@ -633,8 +742,10 @@ export const resetPassword = async (validationId, newPassword) => {
       password: newPassword,
     });
 
-    // Mark validation token as used
-    await validationData.markAsUsed();
+    // Log password change
+    await notificationService.logPasswordChange(user.userId, {
+      ipAddress: null, // Reset via email link, IP not available
+    });
 
     return {
       success: true,

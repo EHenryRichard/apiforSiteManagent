@@ -288,6 +288,7 @@ class EmailTemplate {
     recipientName,
     expiresIn,
     verificationLink,
+    siteName,
   }) {
     return `
       <!DOCTYPE html>
@@ -305,17 +306,15 @@ class EmailTemplate {
                 <!-- Header -->
                 <tr>
                   <td style="background-color: #ff6900; padding: 30px; text-align: center;">
-                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: bold;">🔐 Secure Login</h1>
+                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: bold;">Let's get you signed in</h1>
                   </td>
                 </tr>
 
                 <!-- Body -->
                 <tr>
-                  <td style="padding: 40px 30px; background-color: #1a1a1a;">
-                    <h2 style="margin: 0 0 20px 0; color: #ffffff; font-size: 22px;">Hello${recipientName ? ', ' + recipientName : ''}!</h2>
-
-                    <p style="margin: 0 0 20px 0; color: #cccccc; font-size: 16px; line-height: 1.6;">
-                      We received a login request for your account. ${verificationLink ? 'Click the button below to securely complete your login:' : 'Please verify this login attempt.'}
+                  <td style="padding: 40px 30px; background-color: #1a1a1a; text-align: center;">
+                    <p style="margin: 0 0 24px 0; color: #cccccc; font-size: 16px; line-height: 1.6;">
+                      Sign in with the secure link below
                     </p>
 
                     <!-- Secure Link Button -->
@@ -324,19 +323,19 @@ class EmailTemplate {
                       <tr>
                         <td style="text-align: center;">
                           <a href="${verificationLink}" style="display: inline-block; background-color: #ff6900; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-size: 16px; font-weight: 500; line-height: 1.5;">
-                            Complete Login
+                            Sign in to ${siteName}
                           </a>
                         </td>
                       </tr>
                     </table>
-
-                    <p style="margin: 0 0 16px 0; color: #cccccc; font-size: 14px; line-height: 1.6;">
-                      This link will expire in <strong style="color: #ffffff;">${expiresIn || '15 minutes'}</strong>.
-                    </p>
                     ` : ''}
 
-                    <p style="margin: 20px 0; color: #ff6900; font-size: 14px; line-height: 1.6; font-weight: bold;">
-                      ⚠ If this wasn't you, please secure your account immediately and contact support.
+                    <p style="margin: 24px 0 0 0; color: #999999; font-size: 14px; line-height: 1.6;">
+                      If you didn't request this email, you can safely ignore it.
+                    </p>
+
+                    <p style="margin: 16px 0 0 0; color: #999999; font-size: 14px; line-height: 1.6;">
+                      If you're experiencing issues, please contact Support.
                     </p>
                   </td>
                 </tr>
@@ -346,7 +345,7 @@ class EmailTemplate {
                   <td style="background-color: #0a0a0a; padding: 20px 30px; text-align: center; border-top: 1px solid #333333;">
                     <p style="margin: 0; color: #666666; font-size: 12px; line-height: 1.5;">
                       This is an automated email. Please do not reply.<br>
-                      &copy; ${new Date().getFullYear()} All rights reserved.
+                      &copy; ${new Date().getFullYear()} ${siteName}. All rights reserved.
                     </p>
                   </td>
                 </tr>

@@ -1,4 +1,5 @@
 import * as userService from '../services/userService.js';
+import * as notificationService from '../services/notificationService.js';
 import getClientInfo from '../utils/deviceInfo.js';
 
 export const saveUser = async (req, res) => {
@@ -52,7 +53,7 @@ export const fetchvalidationToken = async (req, res) => {
     if (validationData.isExpired()) {
       return res.status(410).json({
         success: false,
-        error: 'Token has expired',
+        error: 'Token has expired request for a new one ',
         code: 'EXPIRED',
       });
     }
@@ -66,13 +67,27 @@ export const fetchvalidationToken = async (req, res) => {
       });
     }
 
+    // Update user's email verification status if this is email verification
+    if (validationData.type === 'email_verification') {
+      const result = await userService.markEmailAsVerified(validationData.userId);
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: result.reason,
+        });
+      }
+    }
+
+    // Token is valid - delete it from database after successful verification
+    await validationData.destroy();
+
     // Token is valid
     res.status(200).json({
       success: true,
+      message: 'Email verified successfully',
       data: {
         email: validationData.email,
         type: validationData.type,
-        expiresAt: validationData.expiresAt,
       },
     });
   } catch (error) {
@@ -171,6 +186,47 @@ export const regenerateToken = async (req, res) => {
   }
 };
 
+// Resend verification by email only (no token ID required)
+export const resendVerificationEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email address is required',
+      });
+    }
+
+    const result = await userService.resendVerificationByEmail(email);
+
+    if (!result.success) {
+      const statusCodes = {
+        USER_NOT_FOUND: 404,
+        TOKEN_STILL_VALID: 400,
+      };
+
+      return res.status(statusCodes[result.code] || 400).json({
+        success: false,
+        error: result.reason,
+        code: result.code,
+        ...(result.expiresAt && { expiresAt: result.expiresAt }),
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: result.message,
+      data: result.data,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
 // Login user - sends verification email
 export const loginUser = async (req, res) => {
   try {
@@ -241,11 +297,19 @@ export const fetchLoginValidationToken = async (req, res) => {
       });
     }
 
-    // Successfully logged in - return JWT tokens
+    //set refresh token as HTTP-only cookie
+    res.cookie('refreshToken', result.data.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production', //https only in product
+      sameSite: 'strict',
+      maxAge: 5 * 24 * 60 * 60 * 1000, // for 5 days
+    });
+
+    // Successfully logged in - return only access token
     res.status(200).json({
       success: true,
       message: result.message,
-      data: result.data,
+      data: { accessToken: result.data.accessToken },
     });
   } catch (error) {
     res.status(500).json({
@@ -396,8 +460,11 @@ export const resetPassword = async (req, res) => {
 // Refresh access token
 export const refreshAccessToken = async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    // get refresh token fron the HTTP-only cookie
+    const { refreshToken } = req.cookies;
 
+    // console.log(req.cookies);
+    // check if the token is valid
     if (!refreshToken) {
       return res.status(400).json({
         success: false,
@@ -405,20 +472,59 @@ export const refreshAccessToken = async (req, res) => {
       });
     }
 
+    // get the refresh token from the userservice
     const result = await userService.refreshAccessToken(refreshToken);
 
+    // if token not successful
     if (!result.success) {
-      return res.status(401).json({
+      return res.status(403).json({
+        // 403 forbidden for invalid/expired token
         success: false,
         error: result.reason,
         code: result.code,
       });
     }
 
+    // if service returns a new refresh token, update the coookie
+    // if (result.data.refreshToken) {
+    //   res.cookies;
+    // }
+
+    //Return only access token (don't  touch refresh token cookie)
     res.status(200).json({
       success: true,
       message: 'Token refreshed successfully',
-      data: result.data,
+      data: { accessToken: result.data.accessToken },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};
+
+// Logout user - clear refresh token cookie
+export const logoutUser = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // Get client info
+    const clientInfo = await getClientInfo(req);
+
+    // Log logout event
+    await notificationService.logLogout(userId, clientInfo);
+
+    // Clear the refresh token cookie
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Logout successful',
     });
   } catch (error) {
     res.status(500).json({

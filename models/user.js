@@ -80,6 +80,18 @@ const getUserModel = () => {
           field: 'user_id',
           unique: true,
         },
+        isEmailVerified: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+          field: 'is_email_verified',
+        },
+        isBiometricsOn: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+          field: 'is_biometrics_on',
+        },
       },
       {
         timestamps: true, // Enable timestamps
@@ -88,9 +100,7 @@ const getUserModel = () => {
         hooks: {
           beforeValidate: (instance) => {
             if (!instance.userId) {
-              instance.userId = crypto
-                .randomBytes(8)
-                .toString('hex');
+              instance.userId = crypto.randomBytes(8).toString('hex');
             }
           },
         },
@@ -102,8 +112,7 @@ const getUserModel = () => {
       compare: 'authenticate',
     });
   }
-  User.prototype.generateToken = () =>
-    crypto.randomBytes(8).toString('hex');
+  User.prototype.generateToken = () => crypto.randomBytes(8).toString('hex');
   return User;
 };
 

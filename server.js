@@ -14,15 +14,10 @@ const startServer = async () => {
 
     // Start server
     app.listen(port, () => {
-      console.log(
-        `🚀 Server is running successfully on port ${port}`
-      );
+      console.log(`🚀 Server is running successfully on port ${port}`);
     });
   } catch (error) {
-    console.error(
-      '❌ Failed to start server:',
-      error.message
-    );
+    console.error('❌ Failed to start server:', error.message);
     process.exit(1);
   }
 };

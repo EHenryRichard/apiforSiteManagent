@@ -98,12 +98,7 @@ export const sendRegeneratedTokenEmail = async ({
  * @param {string} [params.resetLink] - Optional password reset link
  * @returns {Promise<Object>} Status of email sending
  */
-export const sendPasswordResetEmail = async ({
-  email,
-  recipientName,
-  expiresIn,
-  resetLink,
-}) => {
+export const sendPasswordResetEmail = async ({ email, recipientName, expiresIn, resetLink }) => {
   try {
     // Generate HTML template (NO CODE - just magic link for security)
     const html = EmailTemplate.passwordResetEmail({
@@ -144,6 +139,7 @@ export const sendLoginVerificationEmail = async ({
   recipientName,
   expiresIn,
   verificationLink,
+  siteName,
 }) => {
   try {
     // Generate HTML template (NO token, IP, device, or location - security!)
@@ -151,12 +147,13 @@ export const sendLoginVerificationEmail = async ({
       recipientName: recipientName,
       expiresIn: expiresIn || '15 minutes',
       verificationLink: verificationLink,
+      siteName: process.env.APPNAME,
     });
 
     // Send email
     const result = await EmailSender.send({
       to: email,
-      subject: 'Secure Login - Verification Required',
+      subject: 'Sign in to your account',
       html: html,
     });
 
